@@ -70,7 +70,7 @@ Then run the below shell script to produce results and plots for all examples.
     for proptype in 0 2; do
     	for i in $(seq 0 9); do
     		for j in 3; do
-    			poetry run python3 fa_rjmcmc.py $j $i reload
+    			poetry run python3 fa_rjmcmc.py $j $i reload $proptype
     		done
     	done
     done
