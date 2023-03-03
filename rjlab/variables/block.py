@@ -75,8 +75,7 @@ class RandomVariableBlock(object):
         or possibly a slice object.
         The idea is to use the values to index parameters theta
 
-        Returns a dictionary of possibly more dictionaries. We should
-        avoid this and just return a FLATTENED dictionary.
+        Returns a dictionary of possibly more dictionaries.
         The geometry of the indices should be unchanged for the duration of the sampling.
         Auxiliary variables for transdimensional moves are fixed in place.
 
@@ -107,7 +106,7 @@ class RandomVariableBlock(object):
                     # append to dictionary
                     rv_dim_dict.update(
                         temp_rv_dim_dict
-                    )  # FIXME 16th October the max_blocks doesn't propagate to sub rvblocks. Maybe a workaround is to suffix the rvnames with _1, _2 etc... OR JUST PREVENT IT ALTOGETHER
+                    ) 
                 else:
                     rv_dim_dict[key] = []
                     for k, a in temp_rv_dim_dict.items():
@@ -215,17 +214,13 @@ class ConditionalVariableBlock(RandomVariableBlock):
             i = self.rv[name].getModelIdentifier()
             if i is not None:
                 ids.append(i)
-        # print("Got model identifier CVB",ids)
-        # sys.exit(0)
         if len(ids) == 0:
             return None
         else:
             return ids
 
     def get_inclusion_from_key(self, model_key, condition):
-        # which part of the model key affects this rv block?
         ids = self.getModel().getModelIdentifier()
-        # always slice for now
         for i, rvn in enumerate(ids):
             if rvn == self.indicator_name:
                 return int(model_key[i] >= condition)
@@ -239,8 +234,7 @@ class ConditionalVariableBlock(RandomVariableBlock):
         or possibly a slice object.
         The idea is to use the values to index parameters theta
 
-        Returns a dictionary of possibly more dictionaries. We should
-        avoid this and just return a FLATTENED dictionary.
+        Returns a dictionary of possibly more dictionaries. 
         The geometry of the indices should be unchanged for the duration of the sampling.
         Auxiliary variables for transdimensional moves are fixed in place.
         """
@@ -299,10 +293,6 @@ class ConditionalVariableBlock(RandomVariableBlock):
         # draw indicator first, then use that to draw remaining
         ind_dim = self.rv[self.indicator_name].dim()
         indicator = self.rv[self.indicator_name].draw((size, ind_dim)).flatten()
-        # .reshape(size,thisdim)
-        # d[:,curdim:curdim+thisdim] =
-
-        # d[:,curdim:curdim+thisdim].flatten()
         # get unique indicator values
         unique_indicator = np.unique(indicator).astype(int)
 
@@ -312,7 +302,7 @@ class ConditionalVariableBlock(RandomVariableBlock):
             if key == self.indicator_name:
                 d[:, curdim : curdim + rv_dim] = indicator.reshape(
                     size, rv_dim
-                )  # self.rv[key].draw((ind_size,)).reshape((ind_size,self.rv[key].dim()))
+                )  
                 curdim += rv_dim
                 continue
             for indicator_value in unique_indicator:
@@ -321,9 +311,7 @@ class ConditionalVariableBlock(RandomVariableBlock):
                 if ind_size == 0:
                     continue
                 ind_condition_met = indicator_value >= self.rv_conditions[key]
-                # d[nb_idx,curdim:curdim+rv_dim] = ind_condition_met * self.rv[key].draw((ind_size,)).reshape(ind_size)
                 if ind_condition_met:
-                    # print("ind size",ind_size,rv_dim,ind_idx,curdim)
                     d[ind_idx, curdim : curdim + rv_dim] = (
                         self.rv[key].draw((ind_size,)).reshape((ind_size, rv_dim))
                     )
@@ -394,111 +382,6 @@ class ConditionalVariableBlock(RandomVariableBlock):
         return mean, cov
 
 
-##TODO make InhomogeneousVariable where nblocks variable is passed into constructor, not part of this block.
-# class InhomogeneousBlock(TransDimensionalBlock):
-#    def __init__(self,rvname,rv,nblocks_name='nblocks',block_sizes=[1],min_blocks = 0):
-#        """
-#        Only one random variable type is defined for this block.
-#        block_sizes is a list of integers that defines how many rvs are in each incremental block.
-#        len(block_sizes) is the maximum number of blocks. 0 is the minimum.
-#        """
-#        assert(isinstance(block_sizes,list))
-#        assert(len(block_sizes)>0)
-#        self.rv = {}
-#        self.rv_names = [] # the order in here is immutable
-#        self.rv_dim = {} # used because nblocks has dim 1 but the other RVs have dim maxblocks. TODO make dim() return sum of this.
-#        self.ldim = 0
-#        self.block_sizes = block_sizes
-#        self.min_blocks = min_blocks
-#        self.max_blocks = len(self.block_sizes)
-#        self.nblocks_name = nblocks_name
-#        self.rv_names.append(nblocks_name)
-#        self.rv[nblocks_name]=UniformIntegerRV(self.min_blocks,self.max_blocks)
-#        self.rv_dim[nblocks_name]=1
-#        self.ldim += 1
-#        if isinstance(rv,RandomVariable):
-#            self.rv_names.append(rvname)
-#            self.rv[rvname]=rv
-#            self.rv_dim[rvname] = self.rv[rvname].dim() * np.sum(self.block_sizes)
-#            self.ldim += self.rv_dim[rvname]
-#        elif isinstance(rv,RandomVariableBlock):
-#            raise("RandomVariableBlocks are not supported in VariableTransDimensionalBlocks")
-#        else:
-#            raise("Not an instance of RandomVariable")
-#    def generateRVIndices(self,cur_dim=0,model_key=None,flatten_tree=True):
-#        """
-#        Called by ParametricModelSpace and all children random variable blocks
-#        Returns a dict of rv names as keys, with values as either a list of indices
-#        or another dict
-#        or possibly a slice object.
-#        The idea is to use the values to index parameters theta
-#
-#        Returns a dictionary of possibly more dictionaries. We should
-#        avoid this and just return a FLATTENED dictionary.
-#        The geometry of the indices should be unchanged for the duration of the sampling.
-#        Auxiliary variables for transdimensional moves are fixed in place.
-#        """
-#        rv_dim_dict = {}
-#        # if a model key is provided, query each random variable for the slice amount
-#        # add the nblocks parameter
-#        #rv_dim_dict[self.nblocks_name] = cur_dim
-#        #cur_dim += 1
-#        # use rv_names to preserve order
-#        #for key,value in self.rv.items():
-#        for key in self.rv_names:
-#            if isinstance(self.rv[key],RandomVariable):
-#                if key==self.nblocks_name:
-#                    mb = 1
-#                    max_mb = 1
-#                else:
-#                    if model_key is not None:
-#                        # determine if we're slicing
-#                        mb = self.get_model_slice_from_key(model_key)
-#                        max_mb = self.max_blocks
-#                    else:
-#                        mb = self.max_blocks
-#                        max_mb = self.max_blocks
-#                if mb>0:
-#                    range_dim = int(np.cumsum(self.block_sizes)[mb-1]) #int(self.rv[key].dim() * mb)
-#                else:
-#                    range_dim = 0
-#                #next_dim = int(cur_dim + self.rv[key].dim() * max_mb)
-#                next_dim = int(cur_dim + np.cumsum(self.block_sizes)[max_mb-1]) #int(self.rv[key].dim() * mb)
-#                rv_dim_dict[key]=list(range(cur_dim,cur_dim+range_dim))
-#                cur_dim = next_dim
-#            elif isinstance(self.rv[key],RandomVariableBlock):
-#                raise("RandomVariableBlock not supported in VariableTransDimensionalBlock")
-#        return rv_dim_dict
-#    def draw(self,size=1):
-#        """
-#        Unable to reuse code from RandomVariableBlock because the RV.dim() needs to be scaled by max_blocks
-#        """
-#        d = np.zeros((size,self.dim()))
-#        curdim = 0
-#        # draw nblocks first, then use that to draw remaining
-#        thisdim = self.rv_dim[self.nblocks_name]
-#        d[:,curdim:curdim+thisdim] = self.rv[self.nblocks_name].draw((size,thisdim)).reshape(size,thisdim)
-#        nblocks = d[:,curdim:curdim+thisdim].flatten()
-#        # get unique nblocks values
-#        unique_nblocks = np.unique(d[:,curdim:curdim+thisdim]).astype(int)
-#        #print(unique_nblocks)
-#
-#        curdim+=thisdim
-#        for key in self.rv_names:
-#            if key==self.nblocks_name:
-#                continue
-#            for nb_dim in unique_nblocks:
-#                if nb_dim==0:
-#                    continue
-#                nb_idx = nblocks==nb_dim
-#                nb_size = np.sum(nb_idx)
-#                nb_blocksdim = int(np.cumsum(self.block_sizes)[nb_dim-1])
-#                #print("rv name {} thisdim = {}".format(key,thisdim))
-#                d[nb_idx,curdim:curdim+nb_blocksdim] = self.rv[key].draw((nb_size,nb_blocksdim)).reshape(nb_size,nb_blocksdim)
-#            thisdim = self.rv_dim[key]
-#            curdim+=thisdim
-#        return d
-
 
 class TransDimensionalBlock(RandomVariableBlock):
     def __init__(
@@ -544,17 +427,14 @@ class TransDimensionalBlock(RandomVariableBlock):
                     nblocks_name
                 )
             )
-        # self.rv[nblocks_name]=PoissonRV(self.min_blocks,self.max_blocks)
         self.rv_dim[nblocks_name] = 1
         for key, value in random_variables.items():
             # set modifier if none exists
             if key not in self.nblocks_modifiers.keys():
                 self.nblocks_modifiers[key] = lambda n: n
-            # TODO should just use assert perhaps
             if isinstance(value, RandomVariable):
                 self.rv_names.append(key)
                 self.rv[key] = value
-                # print("checkpoint",key,self.rv[key].dim(),self.nblocks_modifiers[key](self.max_blocks))
                 self.rv_dim[key] = self.rv[key].dim() * self.nblocks_modifiers[key](
                     self.max_blocks
                 )
@@ -570,8 +450,6 @@ class TransDimensionalBlock(RandomVariableBlock):
             self.ldim += 1
 
     def appendBlock(self, theta, block_vars):
-        # assert blockvars is a dict and matches rv names
-        # pair this method with a deleteBlock() method
         pass
 
     def getModelIdentifier(self):
@@ -595,18 +473,14 @@ class TransDimensionalBlock(RandomVariableBlock):
         or possibly a slice object.
         The idea is to use the values to index parameters theta
 
-        Returns a dictionary of possibly more dictionaries. We should
-        avoid this and just return a FLATTENED dictionary.
+        Returns a dictionary of possibly more dictionaries. 
         The geometry of the indices should be unchanged for the duration of the sampling.
         Auxiliary variables for transdimensional moves are fixed in place.
         """
         rv_dim_dict = {}
         # if a model key is provided, query each random variable for the slice amount
         # add the nblocks parameter
-        # rv_dim_dict[self.nblocks_name] = cur_dim
-        # cur_dim += 1
         # use rv_names to preserve order
-        # for key,value in self.rv.items():
         for key in self.rv_names:
             if isinstance(self.rv[key], RandomVariable):
                 if key == self.nblocks_name:
@@ -631,7 +505,7 @@ class TransDimensionalBlock(RandomVariableBlock):
         return rv_dim_dict
 
     def get_model_slice_from_key(self, model_key):
-        # which part of the model key affects this rv block?
+        # determines which part of the model key affects this rv block
         ids = self.getModel().getModelIdentifier()
         # always slice for now
         for i, rvn in enumerate(ids):
@@ -639,7 +513,6 @@ class TransDimensionalBlock(RandomVariableBlock):
                 # specific to TransdimensionalBlock
                 return model_key[i]
         assert False  # failsafe
-        return self.max_blocks  # should never be called
 
     def dim(self, model_key=None):
         """
@@ -678,7 +551,6 @@ class TransDimensionalBlock(RandomVariableBlock):
         nblocks = (
             self.rv[self.nblocks_name].draw((size, thisdim)).reshape(size, thisdim)
         )
-        # nblocks = d[:,curdim:curdim+thisdim].flatten()
         if self.nblocks_position == "first":
             d[:, curdim : curdim + thisdim] = nblocks
             curdim += thisdim
@@ -686,10 +558,8 @@ class TransDimensionalBlock(RandomVariableBlock):
             d[:, -thisdim:] = nblocks
 
         # get unique nblocks values
-        # unique_nblocks = np.unique(d[:,curdim:curdim+thisdim]).astype(int)
         nblocks = nblocks.flatten()
         unique_nblocks = np.unique(nblocks).astype(int)
-        # print(unique_nblocks)
 
         for key in self.rv_names:
             if key == self.nblocks_name:
@@ -701,7 +571,6 @@ class TransDimensionalBlock(RandomVariableBlock):
                     continue
                 nb_size = np.sum(nb_idx)
                 thisdim = self.rv_dim[key]
-                # print("rv name {} thisdim = {}".format(key,thisdim))
                 d[nb_idx, curdim : curdim + nb_dim_m] = (
                     self.rv[key].draw((nb_size, nb_dim_m)).reshape(nb_size, nb_dim_m)
                 )
@@ -716,7 +585,6 @@ class TransDimensionalBlock(RandomVariableBlock):
         log_prior = np.zeros(size)
         # TODO eval priors for all model types, generating indices for each.
         rv_dim_dict = self.generateRVIndices(flatten_tree=False)
-        # print("Block eval log prior, rv_dim_dict",rv_dim_dict)
 
         # do key blocks first, then get nblocks from it.
         log_prior += (
@@ -732,11 +600,9 @@ class TransDimensionalBlock(RandomVariableBlock):
         for key in self.rv_names:
             if key == self.nblocks_name:
                 # model indicator, always evaluate
-                # log_prior += self.rv[key].eval_log_prior(theta[:,rv_dim_dict[key]]).reshape(size)
                 pass
             else:
                 # The below assumes that zero'd entries are not active. This is a mistake, because some distributions could have mass at zero.
-                # log_prior += (theta[:,rv_dim_dict[self.nblocks_name]]!=0).reshape(size) * self.rv[key].eval_log_prior(theta[:,rv_dim_dict[key]]).sum(axis=1).reshape(size)
                 for nb_dim in unique_nblocks:
                     nb_match = nblocks == nb_dim
                     nb_dim_m = self.nblocks_modifiers[key](nb_dim)
@@ -745,14 +611,10 @@ class TransDimensionalBlock(RandomVariableBlock):
                     nb_size = np.sum(nb_match)
                     nb_idx = np.where(nb_match)[0]
                     trimmed_idx = rv_dim_dict[key][:nb_dim_m]
-                    # print("eval log prior, key",key)
-                    # if key=='weight':
-                    #    print(theta[np.ix_(nb_idx,trimmed_idx)])
                     log_prior[nb_idx] += sum_along_axis(
                         self.rv[key].eval_log_prior(theta[np.ix_(nb_idx, trimmed_idx)]),
                         axis=1,
                     ).reshape(nb_size)
-                # print("prior eval on rv {} yields {}".format(key,log_prior))
         return log_prior
 
     def _estimatemoments(self, theta, mk):
@@ -770,7 +632,7 @@ class TransDimensionalBlock(RandomVariableBlock):
         for key in self.rv_names:
             if key == self.nblocks_name:
                 continue
-            rvdim = len(rv_dim_dict[key])  # self.rv[key].dim(mk)
+            rvdim = len(rv_dim_dict[key])
             print(
                 "TVB dim for rv",
                 key,
