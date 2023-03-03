@@ -64,22 +64,18 @@ class Custom2DHyperbolaTransform(Transform):
 class SinArcSinhTransform(Transform):
     def __init__(self, e, d):
         super().__init__()
-        # print(e,d,type(e),type(d))
         assert isinstance(e, int) or isinstance(e, float)
         assert isinstance(d, int) or isinstance(d, float)
         self.epsilon = e
         self.delta = d
 
     def _sas(self, x, epsilon, delta):
-        # return np.sinh((np.arcsinh(x)+epsilon)/delta)
         return torch.sinh((torch.arcsinh(x) + epsilon) / delta)
 
     def _isas(self, x, epsilon, delta):
-        # return np.sinh(delta*np.arcsinh(x)-epsilon)
         return torch.sinh(delta * torch.arcsinh(x) - epsilon)
 
     def _ldisas(self, x, epsilon, delta):
-        # return -np.log(np.abs(delta*np.cosh(delta*np.arcsinh(x)-epsilon)/np.sqrt(1+x**2)))
         return torch.log(
             torch.abs(
                 delta
@@ -89,23 +85,14 @@ class SinArcSinhTransform(Transform):
         )
 
     def forward(self, X, context=None):
-        # print("sas1d ld shape",ld.shape)
-        # print(X)
         XX = self._sas(X, self.epsilon, self.delta)
         ld = -self._ldisas(XX, self.epsilon, self.delta)
-        # if(ld.dim()<2):
-        #    ld = ld.reshape((ld.shape[0],))
         ld = ld.flatten()
         return XX, ld
 
     def inverse(self, X, context=None):
         ld = self._ldisas(X, self.epsilon, self.delta)
-        # print(ld)
-        # if(ld.dim()<2):
-        #    ld = ld.reshape((ld.shape[0],))
         ld = ld.flatten()
-        # print("sas1d ld shape",ld.shape)
-        # print(X)
         return self._isas(X, self.epsilon, self.delta), ld
 
 
@@ -122,8 +109,6 @@ class SAS2DTransform(Transform):
         ld = torch.zeros_like(X)
         TX[:, 0], ld[:, 0] = self.t1.forward(X[:, 0])
         TX[:, 1], ld[:, 1] = self.t2.forward(X[:, 1])
-        # print("sas2d ld",ld,ld.sum(axis=1))
-        # print("sas2d ld shape",ld.shape,ld.sum(axis=-1).shape)
         return TX, ld.sum(axis=-1)
 
     def inverse(self, X, context=None):
@@ -131,8 +116,6 @@ class SAS2DTransform(Transform):
         ld = torch.zeros_like(X)
         TX[:, 0], ld[:, 0] = self.t1.inverse(X[:, 0])
         TX[:, 1], ld[:, 1] = self.t2.inverse(X[:, 1])
-        # print("sas2d ld",ld,ld.sum(axis=1))
-        # print("sas2d ld shape",ld.shape,ld.sum(axis=-1).shape)
         return TX, ld.sum(axis=-1)
 
 
@@ -149,7 +132,6 @@ class NaiveGaussianTransform(Transform):
                 inputs[:, d] @ weights
             ) / weights.sum()  # torch.mean(inputs[:,d])
         # fit covariance to inputs, then decompose
-        # print("NaiveGaussianTransform inputs X.shape={} weights.shape={}".format(inputs.shape,weights.shape))
         if self._dim == 1:
             # 1D
             # std = torch.std(inputs,unbiased=True)
@@ -157,7 +139,7 @@ class NaiveGaussianTransform(Transform):
                 np.cov(
                     inputs.detach().numpy().flatten(), aweights=weights.detach().numpy()
                 )
-            )  # hack for torch 1.9.1
+            )  # workaround for torch 1.9.1
             std = cov**0.5
             self._t = L1DTransform(std)
         else:
@@ -174,20 +156,9 @@ class NaiveGaussianTransform(Transform):
                         aweights=weights.detach().numpy(),
                         rowvar=False,
                     )
-                )  # hack for torch 1.9.1
+                )  # workaround for torch 1.9.1
                 cov = torch.Tensor(make_pos_def(cov.detach().numpy()))
-                # if not is_pos_def_torch(cov):
-                if False:
-                    cov = make_pos_def_torch(cov)
-                    if torch.abs(torch.linalg.det(cov)) < 1e-15:
-                        print("WARNING: Singular covariance matrix\n", cov)
-                        eL, eQ = torch.linalg.eigh(cov)
-                        factor = torch.abs(eL[-1])
-                        if factor < 1e-10:
-                            factor = 1
-                        cov += torch.eye(self._dim) * factor
                 L = safe_cholesky(cov)
-                # L = torch.linalg.cholesky(cov)
                 self._t = LTransform(L)
 
     def forward(self, inputs, context=None):
@@ -199,12 +170,6 @@ class NaiveGaussianTransform(Transform):
         x = inputs - self._shift
         return self._t.inverse(x, context)
 
-    # def forward(self,X,context=None):
-    #    return self._t.forward(X,context)
-    # def inverse(self,X,context=None):
-    #    return self._t.inverse(X,context)
-
-
 class LTransform(Transform):
     def __init__(self, M=None, dim=None):
         super().__init__()
@@ -212,18 +177,14 @@ class LTransform(Transform):
             assert dim is not None
             self.L = torch.eye(dim)
         else:
-            # self.L = torch.linalg.cholesky(torch.from_numpy(M))
             self.L = M
             self.Linv = torch.linalg.inv(M)
             self.ld = torch.logdet(M)
-            # print("logdet L",self.ld)
 
     def forward(self, X, context=None):
-        # print(torch.full([X.shape[0]],self.ld),"LTransform")
         return torch.matmul(X, self.L.T), torch.full([X.shape[0]], self.ld)
 
     def inverse(self, X, context=None):
-        # print(torch.full([X.shape[0]],-self.ld),"LTransform")
         return torch.matmul(X, self.Linv.T), torch.full([X.shape[0]], -self.ld)
 
 
@@ -266,12 +227,7 @@ class BetaMixtureMarginalTransform(Transform):
             ]  # needs to be univariate for scipy to fit it
             tmp = fitparams.cdf(t2n(X[:, i]))
             U[:, i] = n2t(tmp)
-            # U[:,i]=n2t(fitparams.cdf(t2n(X[:,i])))
-            # sanitise boundaries so we don't get infs
-            # U[U[:,i]<1e-15,i] = 1e-15
-            # U[U[:,i]>1-1e-15,i] = 1-1e-15
             log_U[:] += n2t(fitparams.logpdf(t2n(X[:, i])))
-        # print("U\n",U)
         return U, log_U
 
     def inverse(self, U, context=None):
@@ -288,7 +244,6 @@ class BetaMixtureMarginalTransform(Transform):
             ]  # needs to be univariate for scipy to fit it
             X[:, i] = n2t(fitparams.ppf(t2n(U[:, i])))
             log_X[:] += n2t(-fitparams.logpdf(t2n(X[:, i])))
-        # print("X\n",X)
         return X, log_X
 
     def _fit(self, inputs):
@@ -308,66 +263,6 @@ class BetaMixtureMarginalTransform(Transform):
                 self.marg_params.append(
                     BetaMix(t2n(inputs[:, i]), self.num_marginal_beta_components)
                 )  # needs to be univariate for scipy to fit it
-                # if True:
-            if PLOT_PROGRESS:
-                if self.ndim > 1:
-                    U, detU = self.forward(inputs)
-                    ncols = self.ndim  # 2*k
-                    nrows = ncols
-
-                    fig, axs = plt.subplots(nrows, ncols, sharex=True, sharey=True)
-                    plt.title("calibrate {}".format(self.ndim))
-                    for j in range(ncols):
-                        mb = self.marg_params[j]
-                        print(
-                            "marginal {} count {} Params {}".format(
-                                j, inputs.shape[0], mb.getparams()
-                            )
-                        )
-                        nd, bins, patches = axs[j, j].hist(
-                            t2n(inputs[:, j]), density=True, bins=20
-                        )
-                        axs[j, j].plot(
-                            np.linspace(0, 1, 100),
-                            np.exp(mb.logpdf(np.linspace(0, 1, 100))),
-                        )
-                        for m in range(j, ncols):
-                            axs[j, j].get_shared_y_axes().remove(axs[j, m])
-                            axs[j, j].get_shared_x_axes().remove(axs[m, j])
-                        for m in range(ncols):
-                            if m > j:
-                                axs[m, j].scatter(
-                                    U[:, j], U[:, m], color="green", s=0.2
-                                )
-                                axs[m, j].get_shared_y_axes().remove(axs[j, j])
-                            elif m < j:
-                                axs[m, j].scatter(
-                                    t2n(inputs[:, j]),
-                                    t2n(inputs[:, m]),
-                                    color="blue",
-                                    s=0.2,
-                                )
-                                axs[m, j].get_shared_y_axes().remove(axs[j, j])
-                            if m < ncols - 1:
-                                axs[m, j].xaxis.set_ticks_position("none")
-                            if j > 0:
-                                axs[m, j].yaxis.set_ticks_position("none")
-                    plt.show()
-                elif self.ndim == 1:
-                    U, detU = self.forward(inputs)
-                    ncols = self.ndim  # 2*k
-                    nrows = 1
-                    fig, axs = plt.subplots(nrows, ncols)
-                    mb = self.marg_params[0]
-                    nd, bins, patches = axs[0].hist(
-                        t2n(inputs[:, 0]), density=True, bins=20
-                    )
-                    axs[0].plot(
-                        np.linspace(0, 1, 100),
-                        np.exp(mb.logpdf(np.linspace(0, 1, 100))),
-                    )
-                    axs[1].hist(U[:, 0], bins=50, color="green", s=0.2)
-                    plt.show()
 
 
 class MaskedFixedNorm(Transform):
@@ -385,18 +280,16 @@ class MaskedFixedNorm(Transform):
                 self._shift[d] = 0
                 self._scale[d] = 1
                 continue
-            # self._shift[d] = torch.mean(inputs[:,d])
             self._shift[d] = (inputs[mask[:, d], d] @ weights[mask[:, d]]) / weights[
                 mask[:, d]
             ].sum()  # torch.mean(inputs[:,d])
-            # self._scale[d] = torch.std(inputs[:,d])
             try:
                 cov = torch.Tensor(
                     np.cov(
                         inputs[mask[:, d], d].detach().numpy().flatten(),
                         aweights=weights[mask[:, d]].detach().numpy(),
                     )
-                )  # hack for torch 1.9.1
+                )  # workaround for torch 1.9.1
             except Exception:
                 print(d)
                 print(mask[:, d].sum())
@@ -406,7 +299,6 @@ class MaskedFixedNorm(Transform):
                 sys.exit(0)
             self._scale[d] = cov**0.5
             self._scale[d] = max(self._scale[d], 1e-10)
-            # print("dim ",self._dim,"shift,scale",self._shift,self._scale)
             if torch.any(~torch.isfinite(self._scale)):
                 print("inputs are singular, ", d)
                 print(inputs[~torch.isfinite(inputs[mask[:, d], d])])
@@ -468,7 +360,6 @@ class FixedLinear(Transform):
             -torch.log(torch.abs(self._scale * torch.ones_like(inputs))),
             num_batch_dims=1,
         )
-        # return outputs, -torch.log(torch.abs(self._scale * torch.ones_like(inputs))).sum(axis=-1)
         return outputs, logabsdet
 
     def forward(self, inputs, context=None):
@@ -478,7 +369,6 @@ class FixedLinear(Transform):
             torch.log(torch.abs(self._scale * torch.ones_like(inputs))),
             num_batch_dims=1,
         )
-        # return outputs, torch.log(torch.abs(self._scale * torch.ones_like(inputs))).sum(axis=-1)
         return outputs, logabsdet
 
 
@@ -490,16 +380,10 @@ class ConditionalMaskedTransform(Transform):
 
     def forward(self, inputs, context=None):
         if context is None:
-            # outputs = torch.zeros_like(inputs)
-            # ld = torch.zeros_like(inputs)
-            # for i in range(inputs.shape[1])
-            #    outputs[:,i], ld[:,i] = self._tf.forward(inputs)
-            # return outputs, ld.sum(axis=1)
             return self._tf.forward(inputs)
         else:
             N = inputs.shape[0]
             mask = self._ct(context)
-            # print("forward mask",mask[:10])
             outputs = inputs.clone()
             ld = torch.zeros_like(outputs)
             maskN = mask.sum()
@@ -515,11 +399,9 @@ class ConditionalMaskedTransform(Transform):
         else:
             N = inputs.shape[0]
             mask = self._ct(context)
-            # print("inverse mask",mask[:10])
             maskN = mask.sum()
             outputs = inputs.clone()
             ld = torch.zeros_like(outputs)
-            # outputs[mask], ld[mask] = self._tf.inverse(inputs[mask])
             outputs_temp, ld_temp = self._tf.inverse(inputs[mask].reshape((maskN, 1)))
             outputs[mask] = outputs_temp.reshape(maskN)
             ld[mask] = ld_temp.reshape(maskN)
@@ -537,20 +419,17 @@ class FixedNorm(Transform):
             n = inputs.shape[0]
             weights = torch.full([n], 1.0 / n)
         for d in range(self._dim):
-            # self._shift[d] = torch.mean(inputs[:,d])
             self._shift[d] = (
                 inputs[:, d] @ weights
             ) / weights.sum()  # torch.mean(inputs[:,d])
-            # self._scale[d] = torch.std(inputs[:,d])
             cov = torch.Tensor(
                 np.cov(
                     inputs[:, d].detach().numpy().flatten(),
                     aweights=weights.detach().numpy(),
                 )
-            )  # hack for torch 1.9.1
+            )  # workaround for torch 1.9.1
             self._scale[d] = cov**0.5
             self._scale[d] = max(self._scale[d], 1e-10)
-            # print("dim ",self._dim,"shift,scale",self._shift,self._scale)
             if torch.any(~torch.isfinite(self._scale)):
                 print("inputs are singular, ", d)
                 print(inputs[~torch.isfinite(inputs[:, d])])
@@ -606,7 +485,6 @@ class ColumnSpecificTransform(Transform):
         outputs = inputs.clone()
         ld = torch.zeros(inputs.shape[0])
         for col, t in self._spec.items():
-            # if col < inputs.shape[1]:
             v, ldtemp = t.forward(inputs[:, col].reshape((inputs.shape[0], 1)), context)
             outputs[:, col] = v.reshape((inputs.shape[0],))
             ld += ldtemp
@@ -616,7 +494,6 @@ class ColumnSpecificTransform(Transform):
         outputs = inputs.clone()
         ld = torch.zeros(inputs.shape[0])
         for col, t in self._spec.items():
-            # if col < inputs.shape[1]:
             v, ldtemp = t.inverse(inputs[:, col].reshape((inputs.shape[0], 1)), context)
             outputs[:, col] = v.reshape((inputs.shape[0],))
             ld += ldtemp
@@ -637,7 +514,6 @@ class LogTransform(Transform):
         outputs = torch.log(inputs)
         if inputs.ndimension() > 1:
             sumdims = list(range(1, inputs.ndimension()))
-            # logabsdet = torch.sum(-torch.log(inputs), dims=sumdims)
             logabsdet = torchutils.sum_except_batch(
                 -torch.log(inputs), num_batch_dims=1
             )
@@ -649,7 +525,6 @@ class LogTransform(Transform):
         outputs = torch.exp(inputs)
         if inputs.ndimension() > 1:
             sumdims = list(range(1, inputs.ndimension()))
-            # logabsdet = -torch.sum(-torch.log(outputs), dims=sumdims)
             logabsdet = -torchutils.sum_except_batch(
                 -torch.log(outputs), num_batch_dims=1
             )
@@ -658,138 +533,8 @@ class LogTransform(Transform):
         return outputs, logabsdet
 
 
-class MaskedAffineFlow(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
-
-    @classmethod
-    def factory(
-        cls,
-        inputs,
-        base_dist=None,
-        standardising_transform=n.transforms.IdentityTransform(),
-        boxing_transform=n.transforms.IdentityTransform(),
-        initial_transform=n.transforms.IdentityTransform(),
-        input_weights=None,
-    ):
-        global PLOT_PROGRESS
-
-        ndim = inputs.shape[1]
-
-        # Configuration
-        dim_multiplier = int(np.log2(1 + np.log2(ndim)))
-        num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
-        num_iter = 500  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        ss_size = 128  # 1024
-
-        if base_dist is None:
-            base_dist = Uniform(low=torch.zeros(ndim), high=torch.ones(ndim))
-            utr = n.transforms.IdentityTransform()
-            sttr = n.transforms.IdentityTransform()
-            ittr = n.transforms.IdentityTransform()
-        else:
-            # assert(boxing_transform is not None)
-            utr = boxing_transform
-            sttr = standardising_transform
-            ittr = initial_transform
-
-        # fit to the boxed inputs
-        # x, ld = utr.forward(torch.Tensor(inputs))
-
-        x = torch.tensor(inputs, dtype=torch.float32)
-
-        transforms = []
-
-        for _ in range(num_layers):
-            transforms.append(ReversePermutation(features=ndim))
-            transforms.append(
-                n.transforms.MaskedPiecewiseLinearAutoregressiveTransform(
-                    features=ndim, hidden_features=ndim * 32, num_bins=16, num_blocks=4
-                )
-            )
-
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
-        _transform = n.transforms.CompositeTransform(
-            [
-                ittr,
-                n.transforms.CompositeCDFTransform(
-                    utr, CompositeTransform([sttr, CompositeTransform(transforms)])
-                ),
-            ]
-        )
-        xx, __ = _transform.forward(x)
-        myflow = cls(_transform, base_dist)
-        optimizer = optim.Adam(myflow.parameters())
-        if input_weights is None:
-            for i in range(num_iter):
-                optimizer.zero_grad()
-                ids = np.random.choice(x.shape[0], ss_size)
-                loss = -myflow.log_prob(inputs=x[ids]).mean()
-                loss.backward()
-                optimizer.step()
-                if (i) % 100 == 0:
-                    print(i, loss)
-        else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
-            for i in range(num_iter):
-                optimizer.zero_grad()
-                ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
-                loss = -myflow.log_prob(inputs=x[ids]).mean()
-                loss.backward()
-                optimizer.step()
-                if (i) % 100 == 0:
-                    print(i, loss)
-
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
 
 class RationalQuadraticFlowFA(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -807,24 +552,18 @@ class RationalQuadraticFlowFA(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 3000  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
         ss_size = 32
-        #ss_size = int(2**np.ceil(np.log2(inputs.shape[0] * 0.05)))
 
         if base_dist is None:
             base_dist = Uniform(low=torch.zeros(ndim), high=torch.ones(ndim))
             utr = n.transforms.IdentityTransform()
             ittr = n.transforms.IdentityTransform()
         else:
-            # assert(boxing_transform is not None)
             utr = boxing_transform
             ittr = initial_transform
 
-        # fit to the boxed inputs
-        # x, ld = utr.forward(torch.Tensor(inputs))
 
         x = torch.tensor(inputs, dtype=torch.float32)
 
@@ -838,10 +577,6 @@ class RationalQuadraticFlowFA(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -851,23 +586,9 @@ class RationalQuadraticFlowFA(Flow):
         xx, __ = _transform.forward(x)
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
-        #
         lmbda = (
-            #lambda epoch: 0.992 if epoch < 200 else 0.9971
-            #lambda epoch: 0.9971 if epoch < 200 else 0.9971
             lambda epoch: 0.999
-        )  # was best for TRJ paper, with 3 layers, numblocks=2, numbins=10, 1000 epochs, double ss_size every 200 epochs
-        #
-        # lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9
+        )  
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
         )
@@ -882,21 +603,15 @@ class RationalQuadraticFlowFA(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
-                    #print(i, hloss[max(0, i - 50) : i + 1].mean())
                     avgloss = hloss[max(0, i - 99) : i + 1].mean()
                     print(i,avgloss)
                     if i>0 and np.abs(lastloss - avgloss) < 0.05:
                         break
                     elif i>0:
                         lastloss = avgloss
-                if (i) % 200 == 0 and (i) > 0:
-                    pass
-                    #ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -905,56 +620,16 @@ class RationalQuadraticFlowFA(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
-                    # print(i, loss)
-                    #print(i, hloss[max(0, i - 50) : i + 1].mean())
                     avgloss = hloss[max(0, i - 99) : i + 1].mean()
                     print(i,avgloss)
                     if i>0 and np.abs(lastloss - avgloss) < 0.05:
                         break
                     elif i>0:
                         lastloss = avgloss
-                if (i) % 200 == 0 and (i) > 0:
-                    pass
-                    #ss_size *= 2
-
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
 
 class RationalQuadraticFlowFAV(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -972,7 +647,7 @@ class RationalQuadraticFlowFAV(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 3000  # * max(1,dim_multiplier)
         ss_size = 32
 
@@ -991,22 +666,12 @@ class RationalQuadraticFlowFAV(Flow):
             val_idx =  np.array(np.arange(sn)*interval + interval/2,dtype=int)
             train_idx = np.setdiff1d(np.arange(N),val_idx)
             return train_idx, val_idx
-            #boolarr = np.zeros(N,dtype=bool)
-            #boolarr[val_idx]=True
-            #return boolarr
 
 
         N = inputs.shape[0]
         if input_weights is not None:
-            #validate_idx = weight_sort_idx[1::2]
-            #train_idx = weight_sort_idx[::2]
             train_idx, validate_idx = get_train_val_idx(N,val_percent)
-            # index weighted particles
             weight_sort_idx = np.argsort(input_weights)
-            #print("N",N)
-            #print(weight_sort_idx)
-            #print(validate_idx)
-            #print(train_idx)
             train_idx = weight_sort_idx[train_idx]
             validate_idx = weight_sort_idx[validate_idx]
             
@@ -1017,8 +682,6 @@ class RationalQuadraticFlowFAV(Flow):
             x_validate_w = input_weights[validate_idx]
             x_validate_w = np.exp(np.log(x_validate_w) - logsumexp(np.log(x_validate_w)))
         else:
-            #train_idx = np.random.choice(inputs.shape[0], size=int(inputs.shape[0]/2),replace = False)
-            #validate_idx = np.setdiff1d(np.arange(inputs.shape[0]),train_idx)
             train_idx, validate_idx = get_train_val_idx(N,val_percent)
             x_train = torch.tensor(inputs[train_idx], dtype=torch.float32)
             x_train_w = np.full(train_idx.shape[0],1./train_idx.shape[0])
@@ -1035,10 +698,6 @@ class RationalQuadraticFlowFAV(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -1047,24 +706,9 @@ class RationalQuadraticFlowFAV(Flow):
         )
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
-        #
         lmbda = (
-            #lambda epoch: 0.992 if epoch < 200 else 0.9971
             lambda epoch: 0.995 if epoch < 200 else 0.9971
-            #lambda epoch: 0.9971 if epoch < 200 else 0.9971
-            #lambda epoch: 0.9971
-        )  # was best for TRJ paper, with 3 layers, numblocks=2, numbins=10, 1000 epochs, double ss_size every 200 epochs
-        #
-        # lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9
+        )  
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
         )
@@ -1073,14 +717,12 @@ class RationalQuadraticFlowFAV(Flow):
         train_lastloss = float('inf')
         val_lastloss = float('inf')
         if True:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x_train.shape[0], ss_size, p=x_train_w)
                 loss = -myflow.log_prob(inputs=x_train[ids]).mean()
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 with torch.no_grad():
                     # do validation here
@@ -1100,41 +742,8 @@ class RationalQuadraticFlowFAV(Flow):
                         elif i>0:
                             val_lastloss = val_avgloss
 
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
 
 class RationalQuadraticFlow2(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -1152,24 +761,17 @@ class RationalQuadraticFlow2(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 1000  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
         ss_size = 128
-        # ss_size = int(2**np.ceil(np.log2(inputs.shape[0] * 0.05)))
 
         if base_dist is None:
             base_dist = Uniform(low=torch.zeros(ndim), high=torch.ones(ndim))
             utr = n.transforms.IdentityTransform()
             ittr = n.transforms.IdentityTransform()
         else:
-            # assert(boxing_transform is not None)
             utr = boxing_transform
             ittr = initial_transform
-
-        # fit to the boxed inputs
-        # x, ld = utr.forward(torch.Tensor(inputs))
 
         x = torch.tensor(inputs, dtype=torch.float32)
 
@@ -1183,10 +785,6 @@ class RationalQuadraticFlow2(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -1196,21 +794,9 @@ class RationalQuadraticFlow2(Flow):
         xx, __ = _transform.forward(x)
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
-        #
         lmbda = (
             lambda epoch: 0.992 if epoch < 200 else 0.9971
-        )  # was best for TRJ paper, with 3 layers, numblocks=2, numbins=10, 1000 epochs, double ss_size every 200 epochs
-        #
-        # lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9
+        )  
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
         )
@@ -1224,15 +810,12 @@ class RationalQuadraticFlow2(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     print(i, hloss[max(0, i - 50) : i + 1].mean())
                 if (i) % 250 == 0 and (i) > 0:
-                    # pass
                     ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -1241,51 +824,15 @@ class RationalQuadraticFlow2(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
-                    # print(i, loss)
                     print(i, hloss[max(0, i - 50) : i + 1].mean())
                 if (i) % 250 == 0 and (i) > 0:
-                    # pass
                     ss_size *= 2
 
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
 
 
 class RationalQuadraticFlow(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -1304,11 +851,8 @@ class RationalQuadraticFlow(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 2000  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
-        # ss_size = 128
         ss_size = int(2 ** np.ceil(np.log2(inputs.shape[0] * 0.05)))
 
         if base_dist is None:
@@ -1317,13 +861,10 @@ class RationalQuadraticFlow(Flow):
             sttr = n.transforms.IdentityTransform()
             ittr = n.transforms.IdentityTransform()
         else:
-            # assert(boxing_transform is not None)
             utr = boxing_transform
             sttr = standardising_transform
             ittr = initial_transform
 
-        # fit to the boxed inputs
-        # x, ld = utr.forward(torch.Tensor(inputs))
 
         x = torch.tensor(inputs, dtype=torch.float32)
 
@@ -1337,10 +878,6 @@ class RationalQuadraticFlow(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -1352,15 +889,6 @@ class RationalQuadraticFlow(Flow):
         xx, __ = _transform.forward(x)
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
         lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9971
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
@@ -1376,7 +904,6 @@ class RationalQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     avgloss = hloss[max(0, i - 50) : i + 1].mean()
@@ -1388,7 +915,6 @@ class RationalQuadraticFlow(Flow):
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -1397,11 +923,8 @@ class RationalQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
-                    # print(i, loss)
-                    # print(i, hloss[max(0,i-50):i+1].mean())
                     avgloss = hloss[max(0, i - 50) : i + 1].mean()
                     print(i, avgloss)
                     if lastloss - avgloss < 0.5:
@@ -1410,28 +933,6 @@ class RationalQuadraticFlow(Flow):
                         lastloss = avgloss
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
-
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
 
 
 class CauchyCDF1D(Transform):
@@ -1486,7 +987,6 @@ class StudentTDist(Distribution):
             return StudentT(df=self._df).rsample(
                 torch.Size((num_samples,)) + self._shape
             )
-            # return torch.randn(num_samples, *self._shape, device=self._log_z.device)
         else:
             # The value of the context is ignored, only its size and device are taken into account.
             context_size = context.shape[0]
@@ -1509,18 +1009,6 @@ class StudentTDist(Distribution):
 
 
 class RationalTailQuadraticFlow(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -1537,11 +1025,8 @@ class RationalTailQuadraticFlow(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 2  # hack for now
+        num_layers = 2  # fix for now
         num_iter = 1000  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
-        # ss_size = 128
         ss_size = int(2 ** np.ceil(np.log2(inputs.shape[0] * 0.05)))
 
         if base_dist is None:
@@ -1570,18 +1055,8 @@ class RationalTailQuadraticFlow(Flow):
         _transform = n.transforms.CompositeTransform(
             [ittr, CompositeTransform(transforms)]
         )
-        # xx,__ = _transform.forward(x)
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=1e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=1e-2, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
         lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9971
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
@@ -1596,14 +1071,12 @@ class RationalTailQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     print(i, hloss[max(0, i - 50) : i + 1].mean())
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -1612,50 +1085,14 @@ class RationalTailQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
-                    # print(i, loss)
                     print(i, hloss[max(0, i - 50) : i + 1].mean())
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
 
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
-
 
 class ConditionalRationalQuadraticFlow(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -1675,18 +1112,13 @@ class ConditionalRationalQuadraticFlow(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 500  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
-        # ss_size = 128
         if input_weights is not None:
             logw = np.log(input_weights)
             logw -= logsumexp(logw)
             ess = np.exp(-logsumexp(2 * logw))
-            print("Weights ess ", ess)
             ss_size = int(2 ** np.ceil(np.log2(ess * 0.05)))
-            print("ss size ", ss_size)
         else:
             ss_size = int(2 ** np.ceil(np.log2(inputs.shape[0] * 0.05)))
 
@@ -1695,7 +1127,6 @@ class ConditionalRationalQuadraticFlow(Flow):
             utr = n.transforms.IdentityTransform()
             ittr = n.transforms.IdentityTransform()
         else:
-            # assert(boxing_transform is not None)
             utr = boxing_transform
             ittr = initial_transform
 
@@ -1716,10 +1147,6 @@ class ConditionalRationalQuadraticFlow(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -1728,15 +1155,6 @@ class ConditionalRationalQuadraticFlow(Flow):
         )
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
         lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9971
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
@@ -1752,18 +1170,14 @@ class ConditionalRationalQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     avgloss = hloss[max(0, i - 50) : i + 1].mean()
                     print(i, avgloss)
-                    # if lastloss - avgloss < 0.1:
-                    #    break
                     lastloss = avgloss
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -1772,20 +1186,14 @@ class ConditionalRationalQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     avgloss = hloss[max(0, i - 50) : i + 1].mean()
                     print(i, avgloss)
-                    # if lastloss - avgloss < 0.1:
-                    #    break
                     lastloss = avgloss
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
 
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
         if PLOT_PROGRESS:
             import matplotlib.pyplot as plt
 
@@ -1807,9 +1215,6 @@ class ConditionalRationalQuadraticFlow(Flow):
 
 
 class ConditionalMaskedRationalQuadraticFlow(Flow):
-    """
-    TODO docstring
-    """
 
     @classmethod
     def factory(
@@ -1831,25 +1236,9 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 1000  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
         ss_size = 128
-        if False:
-            if input_weights is not None:
-                logw = np.log(input_weights)
-                logw -= logsumexp(logw)
-                ess = np.exp(-logsumexp(2 * logw))
-                print("Weights ess ", ess)
-                if 0.5 * ess < 100:
-                    print("Not using ess for ss size")
-                    ss_size = 128
-                else:
-                    ss_size = int(2 ** np.ceil(np.log2(ess * 0.05)))
-            else:
-                ss_size = int(2 ** np.ceil(np.log2(inputs.shape[0] * 0.05)))
-        print("ss size ", ss_size)
 
         if base_dist is None:
             base_dist = Uniform(low=torch.zeros(ndim), high=torch.ones(ndim))
@@ -1876,10 +1265,6 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -1888,15 +1273,6 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
         )
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
         lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9971
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
@@ -1917,7 +1293,6 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     avgloss = hloss[max(0, i - 50) : i + 1].mean()
@@ -1928,7 +1303,6 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -1938,12 +1312,10 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
                     (int(context_mask[ids].sum()),)
                 ).flatten()
                 loss = -myflow.log_prob(inputs=x_m, context=y[ids]).mean()
-                # loss = -myflow.log_prob(inputs=x[ids],context=y[ids]).mean()
                 with torch.no_grad():
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     avgloss = hloss[max(0, i - 50) : i + 1].mean()
@@ -1954,9 +1326,6 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
 
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
         if PLOT_PROGRESS:
             import matplotlib.pyplot as plt
 
@@ -1978,18 +1347,6 @@ class ConditionalMaskedRationalQuadraticFlow(Flow):
 
 
 class RationalQuadraticFlowProposal(Flow):
-    """
-    #    # This method uses rob's code to train a flow using the base dist
-    #    # first, get transform for any dist to space of infinite reals from pytorch docs
-    #    # pair this transform with the flow below.
-    #    # Transform to inf reals, standardise, train flow. See if this helps.
-    #    # This is all peripheral to The Ideal Scenario which was discussed at lunch,. i.e.
-    #    # Specify a range of transforms from the idenity to the ideal between two gaussians.
-    #    # Show "convergence criteria" or "mixing criteria" using these transforms.
-    #    # THe idea is to show that, if our transport maps are within this range, we're
-    #    # "Doing better than the identity transport map".
-    #    # We can use examples from Brooks 2003 to show that such transports are defined in their work.
-    """
 
     @classmethod
     def factory(
@@ -2008,11 +1365,8 @@ class RationalQuadraticFlowProposal(Flow):
         # Configuration
         dim_multiplier = int(np.log2(1 + np.log2(ndim)))
         num_layers = 1 + dim_multiplier  # int(np.log2(ndim))
-        num_layers = 3  # hack for now
+        num_layers = 3  # fix for now
         num_iter = 1000  # * max(1,dim_multiplier)
-        # num_iter = 1000 * max(1,int(np.log2(ndim)))
-        # ss_size = int(inputs.shape[0] * 0.05) #1024
-        # ss_size = 128
         ss_size = int(2 ** np.ceil(np.log2(inputs.shape[0] * 0.05)))
 
         if base_dist is None:
@@ -2020,12 +1374,8 @@ class RationalQuadraticFlowProposal(Flow):
             utr = n.transforms.IdentityTransform()
             ittr = n.transforms.IdentityTransform()
         else:
-            # assert(boxing_transform is not None)
             utr = boxing_transform
             ittr = initial_transform
-
-        # fit to the boxed inputs
-        # x, ld = utr.forward(torch.Tensor(inputs))
 
         x = torch.tensor(inputs, dtype=torch.float32)
 
@@ -2039,10 +1389,6 @@ class RationalQuadraticFlowProposal(Flow):
                 )
             )
 
-        # _transform = CompositeTransform(transforms)
-
-        # myflow = cls(_transform,Uniform(low=torch.zeros(ndim),high=torch.ones(ndim)))
-        # WRONG #_transform = n.transforms.CompositeCDFTransform(utr,CompositeTransform(transforms))
         _transform = n.transforms.CompositeTransform(
             [
                 ittr,
@@ -2052,15 +1398,6 @@ class RationalQuadraticFlowProposal(Flow):
         xx, __ = _transform.forward(x)
         myflow = cls(_transform, base_dist)
         optimizer = optim.Adam(myflow.parameters(), lr=3e-3)
-        # optimizer = optim.SGD(myflow.parameters(), lr=3e-3, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
-        # scheduler = ReduceLROnPlateau(optimizer, 'min',factor=0.1)
-        # lmbda = lambda epoch: 0.9977
-        # lmbda = lambda epoch: 0.9954
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9974 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9992 #0.9949
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.9949 # loss does not go up, but does not get modes properly
-        # lmbda = lambda epoch: 0.984 if epoch < 100 else 0.997 # loss does not go up but also misses some modes
         lmbda = lambda epoch: 0.992 if epoch < 200 else 0.9971
         scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
             optimizer, lr_lambda=lmbda
@@ -2075,14 +1412,12 @@ class RationalQuadraticFlowProposal(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     print(i, hloss[max(0, i - 50) : i + 1].mean())
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
         else:
-            # x_w = torch.tensor(input_weights, dtype=torch.float32)
             for i in range(num_iter):
                 optimizer.zero_grad()
                 ids = np.random.choice(x.shape[0], ss_size, p=input_weights)
@@ -2091,7 +1426,6 @@ class RationalQuadraticFlowProposal(Flow):
                     hloss[i] = loss
                 loss.backward()
                 optimizer.step()
-                # scheduler.step(torch.exp(loss))
                 scheduler.step()
                 if (i) % 100 == 0:
                     # print(i, loss)
@@ -2099,29 +1433,6 @@ class RationalQuadraticFlowProposal(Flow):
                 if (i) % 200 == 0 and (i) > 0:
                     ss_size *= 2
 
-        # reset the transform in the flow to a composite
-        # myflow._distribution = base_dist
-        # myflow._transform = n.transforms.CompositeCDFTransform(utr,myflow._transform)
-        if PLOT_PROGRESS:
-            import matplotlib.pyplot as plt
-
-            if x.shape[1] == 2:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].scatter(x[:, 0].detach().numpy(), x[:, 1].detach().numpy(), s=0.1)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].scatter(y[:, 0], y[:, 1], s=0.1, color="yellow")
-                plt.show()
-            elif x.shape[1] == 1:
-                f, ax = plt.subplots(nrows=1, ncols=2)
-                ax[0].hist(x[:, 0].detach().numpy(), bins=50)
-                yy, yldet = myflow._transform.forward(x)
-                y = yy.detach().numpy()
-                ax[1].hist(y[:, 0], bins=50, color="yellow")
-                plt.show()
-        return myflow
-
 
 if __name__ == "__main__":
     pass
-    # mfn = MaskedFixedNorm(torch.Tensor(X),torch.Tensor(theta_w),Ymask,lambda y : y.repeat_interleave(bs,dim=1).type(torch.bool))
