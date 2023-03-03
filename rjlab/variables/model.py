@@ -35,11 +35,6 @@ class ParametricModelSpace(RandomVariableBlock):
             BirthDeathProposal(['ConductiveLayers',IndependentProposal('Conductivity',BetaDistribution(alpha,beta)])
         ])
     prop_theta = mymodel.propose(theta)
-
-    Because we can't immediately construct proposals from a general method (because that is tricky to program!)
-    I'm just going to allow specific proposals. BirthDeathProposal be damned, let's make LayeredModelBirthProposal where I
-    hard-code the dirichlet distribution for the depth prior draw, and prior draw proposals for earth property parameters.
-    Then I will make a copula proposal where I chuck it some parameters for marginals. That way I can get started!
     """
 
     def __init__(self, random_variables, proposal, rv_transforms={}):
@@ -48,7 +43,7 @@ class ParametricModelSpace(RandomVariableBlock):
         self.proposal = proposal
         self.proposal.setModel(self)
         self.em_method = "full"  # 'full' or 'block' for estimation of moments
-        self.rv_transforms = rv_transforms  # by default, and empty dict. TODO assert valid transform for each rv.
+        self.rv_transforms = rv_transforms  # by default, and empty dict. 
         # set the model for each random variable so that they can call self.pmodel.getModelIdentifier()
         for rvn in self.rv_names:
             self.rv[rvn].setModel(self)
@@ -86,7 +81,6 @@ class ParametricModelSpace(RandomVariableBlock):
 
     @staticmethod
     def plotJoints(theta, prop_theta, propname):
-        # just hardcode get some stuff
         nlayers, nlidx = np.unique(theta[:, 0].astype(int), return_inverse=True)
         for k in nlayers:
             ncols = int(k * 2 + 1)
@@ -95,7 +89,6 @@ class ParametricModelSpace(RandomVariableBlock):
             propidx = prop_theta[:, 0] == k
             fig, axs = plt.subplots(nrows, ncols, sharex=True, sharey=True)
             fig.suptitle(propname)
-            # colidx = list(range(1,k+1)) + list(range(7,7+k)) + [13]
             colidx = (
                 list(range(1, k + 1))
                 + list(range(self.max_layers + 1, self.max_layers + 1 + k))
@@ -113,7 +106,6 @@ class ParametricModelSpace(RandomVariableBlock):
                         n, bins, patches = thisaxs.hist(
                             paramtheta[:, i], color="blue", density=True, bins=20
                         )
-                        # thisaxs.hist(paramprop[:,i],density=True,color='red',rwidth=0.5,bins=bins)
                         thisaxs.hist(
                             paramprop[:, i],
                             density=True,
@@ -216,8 +208,6 @@ class ParametricModelSpace(RandomVariableBlock):
     def calibrateProposalsWeighted(self, theta, weights, N, t):
         # calibrate the proposals
         self.proposal.generateAndMapRVIndices(theta)
-        # proposal_columns = self.generateRVIndices()
-        # self.proposal.mapRVIndices(proposal_columns)
         m_indices, rev = self.enumerateModels(theta)
         self.proposal.calibrateweighted(theta, weights, m_indices, N, t)
 
@@ -231,9 +221,6 @@ class ParametricModelSpace(RandomVariableBlock):
     def calibrateProposalsUnweighted(self, theta, N, t):
         # calibrate the proposals
         self.proposal.generateAndMapRVIndices(theta)
-        # proposal_columns = self.generateRVIndices()
-        # self.proposal.mapRVIndices(proposal_columns)
-        # self.proposal.calibrate(theta,N,t)
         N2 = theta.shape[0]
         m_indices, rev = self.enumerateModels(theta)
         self.proposal.calibrateweighted(theta, np.full(N2, 1.0 / N2), m_indices, N, t)
@@ -313,8 +300,6 @@ class ParametricModelSpace(RandomVariableBlock):
         self.assertDimension(theta)
         # call the top level proposal.
         self.proposal.generateAndMapRVIndices(theta)
-        # proposal_columns = self.generateRVIndices()
-        # self.proposal.mapRVIndices(proposal_columns)
         # subset theta to only columns being proposed
         return self.proposal.draw(theta, N)
 
@@ -324,8 +309,6 @@ class ParametricModelSpace(RandomVariableBlock):
         n = theta.shape[0]
         rv_dim_dict = self.generateRVIndices(flatten_tree=False)
         prop_prior = np.zeros(n)
-        # print("compute prior, rv_dim_dict",rv_dim_dict)
-        # print("rv_names {}, rv {}".format(self.rv_names,self.rv))
         for key in self.rv_names:
             prop_prior += (
                 self.rv[key].eval_log_prior(theta[:, rv_dim_dict[key]]).reshape(n)
@@ -333,7 +316,6 @@ class ParametricModelSpace(RandomVariableBlock):
         return prop_prior
 
     def compute_llh(self, theta):
-        # self.assertDimension()
         return 1
 
     def setStartingDistribution(self, starting_dist):
