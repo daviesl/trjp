@@ -101,7 +101,6 @@ class RJMCMC(object):
             theta[0] = self.drawFromInitialDistribution(1)
         llh[0] = self.pmodel.compute_llh(theta[0][np.newaxis, :])
         log_prior[0] = self.pmodel.compute_prior(theta[0][np.newaxis, :])
-        # print("starting llh, logprior",llh[0],log_prior[0])
         ar = np.zeros(M)
         progress(1, M, status="Running RJMCMC")
         for step in range(1, M):
@@ -120,13 +119,6 @@ class RJMCMC(object):
         return theta, prop_theta, llh, log_prior, ar
 
     def single_mutation(self, theta, llh, N):
-        if False:
-            assert N == llh.shape[0]
-        # init the SMC quantities: weights and Z
-        # kblocks = np.unique(theta[:,0])
-        # print("kblocks",kblocks)
-        # for i in kblocks:
-        #    print("Single mutation count {} particles for model {}".format((theta[:,0]==i).sum(),i)) # n,k
         prop_theta = np.zeros_like(theta)
         log_acceptance_ratio = np.zeros(N)
         prop_llh = np.full(N, np.NINF)
@@ -138,7 +130,7 @@ class RJMCMC(object):
         theta = self.pmodel.sanitise(theta)
         prop_theta[:], prop_lpqratio[:], prop_id[:] = self.pmodel.propose(
             theta, N
-        )  # TODO FIXME self.pmodel.propose(theta,N)
+        ) 
         cur_prior[:] = self.pmodel.compute_prior(theta)
         prop_prior[:] = self.pmodel.compute_prior(prop_theta)
         ninfprioridx = np.where(~np.isfinite(cur_prior))
@@ -150,17 +142,13 @@ class RJMCMC(object):
         )
         prop_llh[valid_theta] = self.pmodel.compute_llh(prop_theta[valid_theta, :])
 
-        # print("acceptance ratio",prop_lpqratio,prop_llh,llh,cur_prior,prop_prior) # TODO implement
         log_acceptance_ratio[:] = self.pmodel.compute_lar(
             theta, prop_theta, prop_lpqratio, prop_llh, llh, cur_prior, prop_prior, 1
-        )  # TODO implement
-
-        # store acceptance ratios
-        # self.rbar_list.append(rbar(log_acceptance_ratio,1,self.reverseEnumerateModels(theta),self.reverseEnumerateModels(prop_theta)))
+        )  
 
         Proposal.setAcceptanceRates(
             prop_id, log_acceptance_ratio, 1
-        )  # TODO for rjmcmc just log all accetance rates
+        ) 
         for pid, prop in Proposal.idpropdict.items():
             if VERBOSITY_HIGH():
                 print(
@@ -171,7 +159,6 @@ class RJMCMC(object):
 
         # accept/reject
         log_u = np.log(uniform.rvs(0, 1, size=N))
-        # reject_indices = (prop_llh - llh < log_u) | ~np.isfinite(prop_llh)
         reject_indices = log_acceptance_ratio < log_u
         accepted_theta = prop_theta.copy()
         accepted_theta[reject_indices] = theta[reject_indices]
@@ -180,8 +167,6 @@ class RJMCMC(object):
         # a boolean array of accepted proposals
         accepted = np.ones(N)
         accepted[reject_indices] = 0
-        # return prop_theta,prop_llh,accepted
-        # print("log acceptance ratio",log_acceptance_ratio)
         self.nmutations += 1
         return (
             accepted_theta,
@@ -267,8 +252,6 @@ class RJBridge(object):
             np.arange(i * blocksize, min(N, (i + 1) * blocksize))
             for i in range(nblocks)
         ]
-        # print("blocks\n",blocks)
-        # TODO reuse this computation from constructor for mmmpd
         progress(0, N, status="Initialising RJMCMC proposals")
         for bidx in blocks:
             if VERBOSITY_HIGH():
@@ -296,96 +279,16 @@ class RJBridge(object):
         )
         prop_llh[valid_theta] = self.pmodel.compute_llh(prop_theta[valid_theta, :])
 
-        # print("acceptance ratio",prop_lpqratio,prop_llh,llh,cur_prior,prop_prior) # TODO implement
         log_acceptance_ratio[:] = self.pmodel.compute_lar(
             theta, prop_theta, prop_lpqratio, prop_llh, llh, cur_prior, prop_prior, 1
-        )  # TODO implement
-        if False:
-            print("theta first 10:", theta[:10])
-            print("prop theta first 10:", prop_theta[:10])
-            print("Log AR first 10:", log_acceptance_ratio[:10])
-            print("prior_first 10:", cur_prior[:10])
-            print("prop prior_first 10:", prop_prior[:10])
-            print("llh 10:", llh[:10])
-            print("prop llh 10:", prop_llh[:10])
-            print("Log AR last 10:", log_acceptance_ratio[-10:])
-            print("prior_last 10:", cur_prior[-10:])
-            print("prop prior_last 10:", prop_prior[-10:])
-            print("llh last 10:", llh[-10:])
-            print("prop llh last 10:", prop_llh[-10:])
-            print(
-                "non-fininte Log AR:",
-                np.where(~np.isfinite(log_acceptance_ratio))[0],
-                np.sum(~np.isfinite(log_acceptance_ratio)),
-            )
-        if False:
-            import seaborn as sns
-            import pandas as pd
-            import matplotlib.pyplot as plt
+        ) 
 
-            idxX8 = [0, 1, 3, 4, 6, 7, 9, 10]
-            idxk8 = [2, 5, 8, 11]
-            idxX4 = [0, 1, 3, 4]
-            idxk4 = [2, 5, 6, 7]
-            idxXFA = list(range(0, 15)) + list(range(16, 22))
-            idxkFA = 15
-            k0 = [1]  # [1,0,0,0] #[1,1,1,0]
-            k1 = [2]  # [1,1,0,0] #[1,1,1,1]
-            X = theta[:, idxXFA]
-            k = theta[:, idxkFA]
-            propX = prop_theta[:, idxXFA]
-            propk = prop_theta[:, idxkFA]
-            print("k==k0", k == k0)
-            print("propk==k1", propk == k1)
-            # k_up = np.logical_and(np.all(k==k0,axis=1),np.all(propk==k1,axis=1))
-            # k_down = np.logical_and(np.all(k==k1,axis=1),np.all(propk==k0,axis=1))
-            k_up = np.logical_and(k == k0, propk == k1)
-            k_down = np.logical_and(k == k1, propk == k0)
-            print("kup", k_up)
-            labels = ["beta{}".format(i) for i in range(X.shape[1])]
-            labels = labels + ["Proposed"]
-            # didx = np.random.choice(X[ki].shape[0],size=1000,replace=False)
-            # data = np.vstack([np.column_stack([propX[didx],np.ones(1000)+ki[didx]]),np.column_stack([X[didx],np.zeros(1000)+propki[didx]])])
-            data_lower = np.vstack(
-                [
-                    np.column_stack([propX[k_down], np.ones((k_down).sum())]),
-                    np.column_stack([X[k_up], np.zeros((k_up).sum())]),
-                ]
-            )
-            # didx = np.random.choice(X[~ki].shape[0],size=1000,replace=False)
-            data_upper = np.vstack(
-                [
-                    np.column_stack([propX[k_up], np.ones((k_up).sum())]),
-                    np.column_stack([X[k_down], np.zeros((k_down).sum())]),
-                ]
-            )
-            df = pd.DataFrame(data_lower, columns=labels)
-            g = sns.PairGrid(df, hue=labels[-1], palette="Paired")
-            g.map_lower(sns.scatterplot, s=1)
-            g.map_diag(sns.distplot)
-            g.add_legend()
-            plt.show()
-            # again for down
-            df = pd.DataFrame(data_upper, columns=labels)
-            g = sns.PairGrid(df, hue=labels[-1], palette="Paired")
-            g.map_lower(sns.scatterplot, s=1)
-            g.map_diag(sns.distplot)
-            g.add_legend()
-            plt.show()
-
-        # Proposal.setAcceptanceRates(prop_id,log_acceptance_ratio,1) # TODO for rjmcmc just log all accetance rates
-        # for pid,prop in Proposal.idpropdict.items():
-        #    print("for pid {}\tprop {}\tar {}".format(pid,prop.printName(),prop.getLastAR()))
 
         # store acceptance ratios
-        # self.rbar_list.append(rbar(log_acceptance_ratio,1,self.reverseEnumerateModels(theta),self.reverseEnumerateModels(prop_theta)))
         model_key_dict, reverse_key_ref = self.pmodel.enumerateModels(theta)
         prop_model_key_dict, prop_reverse_key_ref = self.pmodel.enumerateModels(
             prop_theta
         )
-        # FIXME Wrong! Want the rbar style jump index
-        # mk_ar = {mk:log_acceptance_ratio[idx] for mk,idx in model_key_dict.items()}
-        # prop_mk_ar = {mk:log_acceptance_ratio[idx] for mk,idx in prop_model_key_dict.items()}
         # ar by pair (model key, prop model key). We need this for forward and reverse bayes factors.
         for mk, idx in model_key_dict.items():
             model_key_dict[mk].sort()
@@ -400,21 +303,16 @@ class RJBridge(object):
         mk_list = self.pmodel.getModelKeys()
         nmodels = len(mk_list)
         elar_mat = np.zeros((nmodels, nmodels))  # expected log acceptance ratio
-        # elar_mat2 = np.zeros((nmodels,nmodels)) # expected log acceptance ratio
         for i, mk in enumerate(mk_list):
             for j, prop_mk in enumerate(mk_list):
                 if mkmklar[(mk, prop_mk)].shape[0] > 0:
-                    # elar_mat2[i,j] = logsumexp(mkmklar[(mk,prop_mk)]) - np.log(1000)
                     elar_mat[i, j] = logsumexp(mkmklar[(mk, prop_mk)]) - np.log(
                         mkmklar[(mk, prop_mk)].shape[0]
                     )
         # square matrix B_ij, with log(B_ij)=-log(B_ji), and log(B_ii)=0 down diagonal.
-        # print(elar_mat,"\n",elar_mat2)
         if VERBOSITY_HIGH():
             print(elar_mat)
         log_B_star = elar_mat.T - elar_mat
-        # log_B_star2 = elar_mat2.T - elar_mat2
-        # print("log_B_star\n",log_B_star,"\nlog_B_star2\n",log_B_star2)
         if VERBOSITY_HIGH():
             print("log_B_star\n", log_B_star)
             print("-logsumexp(log_B_star,axis=0)", -logsumexp(log_B_star, axis=0))
@@ -422,7 +320,6 @@ class RJBridge(object):
         # p(i) = B_i1 / (1 + sum_j (B_ji)) = 1 / (B_1i ( 1 + sum_{j=2..d} (B_ji)))
         if True:
             log_pmk = -logsumexp(log_B_star, axis=0)
-            # so maybe the above, log_pmk, is the denominator.
             mk_lpmk = {mk: log_pmk[i] for i, mk in enumerate(mk_list)}
             if True:
                 log_pmk_all = log_B_star - logsumexp(log_B_star, axis=0)
@@ -456,4 +353,3 @@ class RJBridge(object):
                 print(logsumexp(log_pmk, axis=1) - np.log(nmodels))
             log_pmk = logsumexp(log_pmk, axis=1) - np.log(nmodels)
             return {mk: log_pmk[i] for i, mk in enumerate(mk_list)}
-            # return prop_theta,prop_llh,prop_prior,np.exp(log_acceptance_ratio)
